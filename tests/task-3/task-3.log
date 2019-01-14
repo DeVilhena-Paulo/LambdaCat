@@ -1,0 +1,41 @@
+* Task 3: Writing a compiler to categories
+  - [KO] beta.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] beta2.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] sqr.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] fst.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] snd.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] apply.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] id.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] pair.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] beta3.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] pair2.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] compose.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] ffst3.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] sub.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] cossinprod.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] arith.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] fsnd.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] floating.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] ffst.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] float.j
+    Fatal error: exception Failure("Student! This is your job!")
+  - [KO] arith2.j
+    Fatal error: exception Failure("Student! This is your job!")

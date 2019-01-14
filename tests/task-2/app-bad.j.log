@@ -1,0 +1,2 @@
+File "app-bad.j", line 2, characters 25-29:
+Unbound value "true"

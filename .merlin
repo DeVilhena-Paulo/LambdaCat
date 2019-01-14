@@ -1,0 +1,14 @@
+EXCLUDE_QUERY_DIR
+B /home/paulo/.opam/default/lib/base
+B /home/paulo/.opam/default/lib/base/caml
+B /home/paulo/.opam/default/lib/base/shadow_stdlib
+B /home/paulo/.opam/default/lib/pprint
+B /home/paulo/.opam/default/lib/sexplib0
+B _build/default/.joujou.eobjs
+S /home/paulo/.opam/default/lib/base
+S /home/paulo/.opam/default/lib/base/caml
+S /home/paulo/.opam/default/lib/base/shadow_stdlib
+S /home/paulo/.opam/default/lib/pprint
+S /home/paulo/.opam/default/lib/sexplib0
+S .
+FLG -rectypes
