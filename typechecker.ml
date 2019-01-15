@@ -1,5 +1,14 @@
-open PPrint
 open Source
+
+
+(* ************************************************************************** *)
+(* Error handling                                                             *)
+(* ************************************************************************** *)
+   
+exception UnboundValue of term' Position.located
+exception InconsistentTypes of typ * typ * term' Position.located
+exception OnlyFunctionsCanBeApplied of term' Position.located
+exception OnlyPairsCanBeDestructed of term' Position.located
 
 (** [type_error pos msg] reports a type error and exits. *)
 let type_error pos msg =
@@ -8,43 +17,7 @@ let type_error pos msg =
     msg;
   exit 1
 
-(** [string_of_type ty] returns a human readable representation of a type. *)
-let string_of_type t =
-  let rec ty = function
-    | TyConstant TyFloat ->
-       string "float"
-    | TyArrow (input, output) ->
-       group (mayparen_ty_under_arrow_lhs input) ^^ break 1
-       ^^ string "->"
-       ^^ break 1 ^^ (group (ty output))
-    | TyPair (lhs, rhs) ->
-       group (mayparen_ty_under_pair_lhs lhs) ^^ break 1
-       ^^ string "* " ^^ group (mayparen_ty_under_pair_rhs rhs)
-    and mayparen_ty_under_arrow_lhs = function
-      | (TyArrow _) as t ->
-         PPrintCombinators.parens (ty t)
-      | t ->
-         ty t
-    and mayparen_ty_under_pair_lhs = function
-      | (TyArrow _) as t ->
-         PPrintCombinators.parens (ty t)
-      | t ->
-         ty t
-    and mayparen_ty_under_pair_rhs = function
-      | (TyArrow _ | TyPair _) as t ->
-         PPrintCombinators.parens (ty t)
-      | t ->
-         ty t
-  in
-  let b = Buffer.create 13 in
-  PPrintEngine.ToBuffer.pretty 0.8 80 b (group (ty t));
-  Buffer.contents b
-
-exception UnboundValue of term' Position.located
-exception InconsistentTypes of typ * typ * term' Position.located
-exception OnlyFunctionsCanBeApplied of term' Position.located
-exception OnlyPairsCanBeDestructed of term' Position.located
-
+(** [type_error_handler f] returns [f ()] if it doesn't fail and calls [type_error] otherwise. *)
 let type_error_handler f =
   try f () with
   | UnboundValue { value; position } ->
@@ -61,9 +34,32 @@ let type_error_handler f =
      let msg = Printf.sprintf "The expression \"%s\" must have a product type" in
      type_error position (msg (string_of_term' value))
 
-(** [check_program source] returns [source] if it is well-typed or
-   reports an error if it is not. *)
-let check_program (source : program_with_locations) : program_with_locations =
+
+(* ************************************************************************** *)
+(* Syntax of typed terms                                                      *)
+(* ************************************************************************** *)
+
+type 'a typed = {
+    value : 'a;
+    type' : typ
+  }
+
+type tterm = (tterm typed) Source.t
+
+type program_with_types = (binding * tterm typed) list
+
+let value ({ value; _ } : 'a typed) = value
+
+let type' ({ type'; _ } : 'a typed) = type'
+
+let term_with_type value type' = { value; type' }
+
+
+(* ************************************************************************** *)
+(* Translation from source to typed programs                                  *)
+(* ************************************************************************** *)
+
+let type_program (source : program_with_locations) : program_with_types =
   let (ty_env : (identifier, typ) Hashtbl.t) = Hashtbl.create 13 in
 
   let type_primitive : primitive -> typ =
@@ -72,49 +68,66 @@ let check_program (source : program_with_locations) : program_with_locations =
     | Add | Mul -> TyArrow (ty, (TyArrow (ty, ty)))
   in
 
-  let rec check_term ({ value; position } as t : term' Position.located) : typ =
+  let rec type_term ({ value; position } as t : term' Position.located) : tterm typed =
     match value with
-    | Var x ->
-       begin try Hashtbl.find ty_env x with _ -> raise (UnboundValue t) end
+    | Var x as value ->
+       begin
+         try term_with_type value (Hashtbl.find ty_env x)
+         with _ -> raise (UnboundValue t)
+       end
     | App (t, u) ->
-       let ty_u = check_term u in
-       let ty_t = check_term t in
-       begin match ty_t with
-       | TyArrow (ty_t1, ty_t2) when ty_t1 = ty_u -> ty_t2
-       | TyArrow (_, ty_t2) ->
-          raise (InconsistentTypes (ty_t, TyArrow (ty_u, ty_t2), t))
+       let t', u' = type_term t, type_term u in
+       begin match type' t' with
+       | TyArrow (ty, ty') when ty = type' u' ->
+          term_with_type (App (t', u')) ty'
+       | TyArrow (_, ty') ->
+          raise (InconsistentTypes (type' t', TyArrow (type' u', ty'), t))
        | _ -> raise (OnlyFunctionsCanBeApplied t)
        end
     | Lam ((x, ty), t) ->
        Hashtbl.add ty_env x ty;
-       let ty' = check_term t in
+       let t' = type_term t in
        Hashtbl.remove ty_env x;
-       TyArrow (ty, ty')
+       term_with_type (Lam ((x, ty), t')) (TyArrow (ty, type' t'))
     | Fst t | Snd t ->
-       let ty_t = check_term t in
-       begin match ty_t with
-       | TyPair (ty, _) when value = Fst t -> ty
-       | TyPair (_, ty) when value = Snd t -> ty
-       | _ -> raise (OnlyPairsCanBeDestructed t)
-       end
-    | Pair (t, u) -> TyPair (check_term t, check_term u)
-    | Literal l -> TyConstant TyFloat
-    | Primitive p -> type_primitive p
+       let t' = type_term t in
+       let value, type'=
+         match type' t' with
+         | TyPair (ty, _) when value = Fst t -> (Fst t'), ty
+         | TyPair (_, ty) when value = Snd t -> (Snd t'), ty
+         | _ -> raise (OnlyPairsCanBeDestructed t) in
+       term_with_type value type'
+    | Pair (t, u) ->
+       let t', u' = type_term t, type_term u in
+       term_with_type (Pair (t', u')) (TyPair (type' t', type' u'))
+    | Literal l as value ->
+       term_with_type value (TyConstant TyFloat)
+    | Primitive p as value ->
+       term_with_type value (type_primitive p)
   in
 
-  let check_definition (({ Position.value = (x, ty') }, term) as input) =
+  let check_definition ({ Position.value = (x, ty') }, term) =
     type_error_handler
       (fun () ->
-       let ty = check_term term in
+       let term' = type_term term in
         begin
-          if (ty = ty') then Hashtbl.add ty_env x ty
-          else raise (InconsistentTypes (ty, ty', term))
+          if (type' term' = ty') then Hashtbl.add ty_env x ty'
+          else raise (InconsistentTypes (type' term', ty', term))
         end;
-        input)
+        ((x, ty'), term'))
   in
 
   List.map check_definition source
 
+
+(* ************************************************************************** *)
+(* Checking source program                                                    *)
+(* ************************************************************************** *)
+
+(** [check_program source] returns [source] if it is well-typed or
+   reports an error if it is not. *)
+let check_program (source : program_with_locations) : program_with_locations =
+  ignore (type_program source); source
 
 (** [eta_expanse source] makes sure that only functions are defined at
     toplevel and turns them into eta-long forms if needed. *)

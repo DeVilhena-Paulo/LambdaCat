@@ -10,7 +10,7 @@ type 'a typed = {
 type tterm = (tterm typed) Source.t
 
 
-(** Typing Envronment *)
+(** Typing *)
    
 module Env : sig
 

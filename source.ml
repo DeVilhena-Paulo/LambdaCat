@@ -137,3 +137,37 @@ PPrintEngine.(
 let string_of_term' = string_of_term Position.value
 
 let string_of_term = string_of_term (fun x -> x)
+
+
+(** [string_of_type ty] returns a human readable representation of a type. *)
+let string_of_type t =
+  let open PPrint in
+  let rec ty = function
+    | TyConstant TyFloat ->
+       string "float"
+    | TyArrow (input, output) ->
+       group (mayparen_ty_under_arrow_lhs input) ^^ break 1
+       ^^ string "->"
+       ^^ break 1 ^^ (group (ty output))
+    | TyPair (lhs, rhs) ->
+       group (mayparen_ty_under_pair_lhs lhs) ^^ break 1
+       ^^ string "* " ^^ group (mayparen_ty_under_pair_rhs rhs)
+    and mayparen_ty_under_arrow_lhs = function
+      | (TyArrow _) as t ->
+         PPrintCombinators.parens (ty t)
+      | t ->
+         ty t
+    and mayparen_ty_under_pair_lhs = function
+      | (TyArrow _) as t ->
+         PPrintCombinators.parens (ty t)
+      | t ->
+         ty t
+    and mayparen_ty_under_pair_rhs = function
+      | (TyArrow _ | TyPair _) as t ->
+         PPrintCombinators.parens (ty t)
+      | t ->
+         ty t
+  in
+  let b = Buffer.create 13 in
+  PPrintEngine.ToBuffer.pretty 0.8 80 b (group (ty t));
+  Buffer.contents b
