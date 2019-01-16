@@ -848,8 +848,8 @@ end
   let it (type a) (oka : a ok) : (a, unit) k =
     linearD (LambdaCat.it ()) (C.it (snd oka))
 
-  let unit_arrow (type a) (oka : a ok) (a : a) : (unit, a) k =
-    linearD (LambdaCat.unit_arrow () a) (C.unit_arrow (snd oka) a)
+  let unit_arrow (type a) (((module AddA), coka) : a ok) (a : a) : (unit, a) k =
+    linearD (LambdaCat.unit_arrow () a) (C.unit_arrow coka AddA.zero)
 
    let ok_unit =
      ((module AdditiveUnit : Additive with type t = unit), C.ok_unit)
@@ -956,6 +956,14 @@ end
   let mulC =
     let module DerivedOps = CoCartesianCatDerivedOperations (C) in
     D (fun (a, b) -> (C.Num.mul a b, DerivedOps.join C.ok_t C.ok_t C.ok_t (C.scale b, C.scale a)))
+(*
+    D (fun (a, b) ->
+        let ok_pair = C.ok_pair C.ok_t C.ok_t in
+        (C.Num.mul a b,
+         C.compose ok_pair ok_pair C.ok_t
+           (C.addC)
+           (C.pair C.ok_t C.ok_t C.ok_t C.ok_t (C.scale b) (C.scale a))))
+ *)
 
   let sinC =
     D (fun a -> (Floating.sin a, C.scale (Floating.cos a)))
@@ -967,9 +975,7 @@ end
     D (fun a -> let e = Floating.exp a in (e, C.scale e))
 
   let invC =
-    D  (fun a ->
-        let inv_a = Floating.inv a in
-        (inv_a, C.scale (C.Num.neg (C.Num.mul inv_a inv_a))))
+    D (fun a -> (Floating.inv a , C.scale (C.Num.neg (Floating.inv (C.Num.mul a a)))))
 
 end
 

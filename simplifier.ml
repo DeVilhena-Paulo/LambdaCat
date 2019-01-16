@@ -36,28 +36,24 @@ and rebuild' = function
 let identity_rule = function
   | `Arrow (Identity _, _, _), t -> Some [ t ]
   | t, `Arrow (Identity _, _, _) -> Some [ t ]
+  | `Fork ([ `Arrow (Exl _, _, _) ],
+           [ `Arrow (Exr _, _, _) ]), t ->
+     Some [ t ]
+  | _ -> None
+
+let fork_rule = function
+  | `Arrow (Exl _, _, _), `Fork (t, _) -> Some t
+  | `Arrow (Exr _, _, _), `Fork (_, t) -> Some t
   | _ -> None
 
 let curry_rule = function
+  | `Arrow (Apply _, _, _), `Fork ([ `Curry f ], g) ->
+     let _, _A, _ = rebuild g in
+     let h = [ `Arrow (Identity _A, _A, _A) ] in
+     Some (f @ [ `Fork (h, g) ])
   | `Arrow (Apply _, _, _), `Fork ((`Curry f) :: h, g) ->
      Some (f @ [ `Fork (h, g) ])
   | _ -> None
-(*
-  | `Arrow (Apply _, _, _), `Fork ([ `Curry (u :: us) ], g) ->
-     let last, f' =
-       List.fold_left (fun (t', acc) t -> (t, t' :: acc)) (u, []) us in
-     begin match last with
-     | `Arrow (Exr _, _, _) -> Some ((List.rev f') @ g)
-     | _ -> None
-     end
-  |
-  | `Arrow (Apply (_, _), _, _),
-    `Fork ([ `Curry f ],
-           [ `Arrow (Identity _A, _, _) ]) ->
-     let id = [ `Arrow (Identity _A, _A, _A) ] in
-     Some (f @ [ `Fork (id, id) ])
-  | _ -> None
-*)
 
 let rec apply rule = function
   | t :: u :: tl ->
@@ -75,10 +71,23 @@ and map' f = function
   | `UnCurry t -> `UnCurry (map f t)
   | `Arrow _ as t -> t
 
+(*
+let saturate rules =
+  let aux =
+    List.fold_left (fun t' rule -> map (apply rule) t') in
+  let rec saturate' changed =
+    if 
+ *)
+
 let rec rewrite_term (_A : ok) (_C : ok) = fun t -> t
   |> arrow_list _A _C
   |> map (apply identity_rule)
+  |> map (apply fork_rule)
   |> map (apply curry_rule)
+  |> map (apply identity_rule)
+  |> map (apply fork_rule)
+  |> map (apply curry_rule)
+  |> map (apply identity_rule)
   |> rebuild
 
 
