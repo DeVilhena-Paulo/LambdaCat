@@ -49,21 +49,19 @@ let type_program_without_locations : program -> program_with_types = fun source 
 (* Translation from source to 'categorical' programs                          *)
 (* ************************************************************************** *)
 
+let rec ok_of_typ : typ -> Target.ok =
+  let open Target in function
+  | TyArrow (ty, ty') -> OkArrow (ok_of_typ ty, ok_of_typ ty')
+  | TyPair  (ty, ty') -> OkPair  (ok_of_typ ty, ok_of_typ ty')
+  | TyConstant _      -> OkFloat
+
+let ok_of_term : tterm typed -> Target.ok =
+  fun t -> ok_of_typ (type' t)
+
 (** [source_to_categories] translates a [source] in a [target] language
     made of categorical combinators. *)
 let source_to_categories : Source.program -> Target.program = fun source ->
   let (env : (identifier, Target.t * Target.ok * Target.ok) Hashtbl.t) = Hashtbl.create 13 in
-
-  let rec ok_of_typ : typ -> Target.ok =
-    let open Target in function
-    | TyArrow (ty, ty') -> OkArrow (ok_of_typ ty, ok_of_typ ty')
-    | TyPair  (ty, ty') -> OkPair  (ok_of_typ ty, ok_of_typ ty')
-    | TyConstant _      -> OkFloat
-  in
-
-  let ok_of_term : tterm typed -> Target.ok =
-    fun t -> ok_of_typ (type' t)
-  in
 
   let const (_X : Target.ok) (_Y : Target.ok) (t : Target.t) : Target.t =
     App (App (Compose (_X, OkUnit, _Y), App (UnitArrow _Y, t)), It _X)
