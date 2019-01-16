@@ -20,3 +20,10 @@ and ok =
   | OkPair of ok * ok
   | OkArrow of ok * ok
 
+let get_pair : ok -> (ok * ok) = function
+  | OkPair (a, b) -> (a, b)
+  | _ -> raise (Failure "get_pair")
+
+let get_arrow : ok -> (ok * ok) = function
+  | OkArrow (a, b) -> (a, b)
+  | _ -> raise (Failure "get_arrow")
