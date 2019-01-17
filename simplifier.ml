@@ -12,7 +12,7 @@ let rec arrow_list (_A : ok) (_C : ok) = function
   | _ as t ->
      [ `Arrow (t, _A, _C) ]
 
-let rec rebuild = fun ts ->
+let rec rebuild ts =
   let aux (t, _B, _C) (u, _A, _) =
     (App (App (Compose (_A, _B, _C), t), u), _A, _C) in
   let arrow_list = List.map rebuild' ts in
@@ -55,13 +55,19 @@ let curry_rule = function
      Some (f @ [ `Fork (h, g) ])
   | _ -> None
 
-let rec apply rule = function
-  | t :: u :: tl ->
-     begin match rule (t, u) with
-     | Some v -> apply rule (v @ tl)
-     | None -> t :: (apply rule (u :: tl))
-     end
-  | _ as l -> l
+let apply rule = fun ts ->
+  let rec apply' flag = function
+    | t :: u :: tl ->
+       begin match rule (t, u) with
+       | Some v ->
+          apply' true (v @ tl)
+       | None ->
+          let ts', flag' =
+            apply' flag (u :: tl) in
+          t :: ts', flag'
+       end
+    | _ as l -> l, flag in
+  apply' false ts
 
 let rec map f t =
   f (List.map (map' f) t)
@@ -71,25 +77,24 @@ and map' f = function
   | `UnCurry t -> `UnCurry (map f t)
   | `Arrow _ as t -> t
 
-(*
 let saturate rules =
-  let aux =
-    List.fold_left (fun t' rule -> map (apply rule) t') in
-  let rec saturate' changed =
-    if 
- *)
+  let apply' flag rule = fun ts ->
+    let ts', flag' = apply rule ts in
+    flag := !flag || flag';
+    ts' in
+  let aux flag t =
+    flag := false;
+    List.fold_left (fun t' rule -> map (apply' flag rule) t') t rules in
+  let flag = ref true in
+  let rec saturate' t =
+    if !flag then saturate' (aux flag t) else t in
+  saturate'
+
 
 let rec rewrite_term (_A : ok) (_C : ok) = fun t -> t
   |> arrow_list _A _C
-  |> map (apply identity_rule)
-  |> map (apply fork_rule)
-  |> map (apply curry_rule)
-  |> map (apply identity_rule)
-  |> map (apply fork_rule)
-  |> map (apply curry_rule)
-  |> map (apply identity_rule)
+  |> saturate [ identity_rule; fork_rule; curry_rule ]
   |> rebuild
-
 
 (** [rewrite defs] applies category laws to remove [apply] and [curry]
     from the compiled programs. *)
