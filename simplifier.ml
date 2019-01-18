@@ -1,6 +1,15 @@
 open Target
 
-let rec arrow_list (_A : ok) (_C : ok) = function
+
+(* ************************************************************************** *)
+(* Transformations                                                            *)
+(* ************************************************************************** *)
+
+(** [arrow_list _A _C t] decomposes an arrow [t] : [_A] -> [_B] into a list of
+    arrows such that their composition is equal to [t] and does it recursively
+    for the connectors [Fork], [Curry] and [Uncurry]. *)
+let rec arrow_list (_A : ok) (_C : ok) (t : Target.t) =
+  match t with
   | App (App (Compose (_, _B, _), t), u) ->
      (arrow_list _B _C t) @ (arrow_list _A _B u)
   | App (App (Fork (_, _B, _C), t), u) ->
@@ -12,6 +21,8 @@ let rec arrow_list (_A : ok) (_C : ok) = function
   | _ as t ->
      [ `Arrow (t, _A, _C) ]
 
+(** [rebuild ts] returns a triple [(t, _A, C)] such that [ts] is equal to
+    [arrow_list _A _C t]. *)
 let rec rebuild ts =
   let aux (t, _B, _C) (u, _A, _) =
     (App (App (Compose (_A, _B, _C), t), u), _A, _C) in
@@ -32,6 +43,11 @@ and rebuild' = function
     let _B, _C = get_arrow _BC in
     App (UnCurry (_A, _B, _C), t'), OkPair (_A, _B), _C
   | `Arrow (t, _A, _C) -> t, _A, _C
+
+
+(* ************************************************************************** *)
+(* Simplification rules                                                       *)
+(* ************************************************************************** *)
 
 let identity_rule = function
   | `Arrow (Identity _, _, _), t -> Some [ t ]
@@ -55,6 +71,14 @@ let curry_rule = function
      Some (f @ [ `Fork (h, g) ])
   | _ -> None
 
+
+(* ************************************************************************** *)
+(* Simplification procedure                                                   *)
+(* ************************************************************************** *)
+
+(** [apply rule ts] search for pair of consecutive terms in the list [ts] that
+    will match [rule] and returns this new rewritten list together with a boolean
+    flag that is true iff the simplification rule was applied one or more times. *)
 let apply rule = fun ts ->
   let rec apply' flag = function
     | t :: u :: tl ->
@@ -69,8 +93,10 @@ let apply rule = fun ts ->
     | _ as l -> l, flag in
   apply' false ts
 
+(** [map f t] applies f recursively on t. *)
 let rec map f t =
   f (List.map (map' f) t)
+
 and map' f = function
   | `Fork (t, u) -> `Fork (map f t, map f u)
   | `Curry t -> `Curry (map f t)
@@ -89,7 +115,6 @@ let saturate rules =
   let rec saturate' t =
     if !flag then saturate' (aux flag t) else t in
   saturate'
-
 
 let rec rewrite_term (_A : ok) (_C : ok) = fun t -> t
   |> arrow_list _A _C
