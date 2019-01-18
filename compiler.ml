@@ -110,13 +110,6 @@ let source_to_categories : Source.program -> Target.program = fun source ->
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> A *)
        let arrow_v = lam_to_arrow (x, ty) v in (* X --\x.v--> C *)
        App (App (Fork (_X, _A, _C), arrow_u), arrow_v)
-(*
-    | Fst u when Var x = value u ->
-       begin match _X with
-       | OkPair (_B, _C) -> Exl (_B, _C)
-       | _ -> assert false
-       end
- *)
     | Fst u ->
        let _BxC = ok_of_term u in
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> B x C *)
@@ -125,13 +118,6 @@ let source_to_categories : Source.program -> Target.program = fun source ->
           App (App (Compose (_X, OkPair (_B, _C), _B), Exl (_B, _C)), arrow_u)
        | _ -> assert false
        end
-(*
-    | Snd u when Var x = value u ->
-       begin match _X with
-       | OkPair (_A, _B) -> Exr (_A, _B)
-       | _ -> assert false
-       end
-*)
     | Snd u ->
        let _AxB = ok_of_term u in
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> A x B *)
