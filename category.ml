@@ -556,7 +556,7 @@ end
     AdditiveFun (jamF oka)
 
   let ti (type a) (module AddA : Additive with type t = a) =
-    AdditiveFun (fun () -> AddA.zero)
+    AdditiveFun (LambdaCat.unit_arrow () AddA.zero)
 
   let it (type a) (module AddA : Additive with type t = a) =
     AdditiveFun (LambdaCat.it ())
@@ -1053,9 +1053,9 @@ end
     Cont (f ** g)
 
   let pair oka okb okc okd (Cont f : ('a, 'c) k) (Cont g : ('b, 'd) k) =
-    Cont (fun h ->
-        let hf, hg = AFD.unjoin R.okr okc okd h in
-        AFD.join R.okr oka okb (f hf, g hg))
+    Cont ((AFD.join R.okr oka okb) **
+          (fun (x, y) -> (f x, g y)) ** (* or [LambdaCat.pair () () () () f g] *)
+          (AFD.unjoin R.okr okc okd))
 
   let exl (type a b) (oka : a C.ok) (okb : b C.ok) : (a * b, a) k =
     cont (ok_pair oka okb) oka (C.exl oka okb)
@@ -1161,5 +1161,107 @@ end
   let addC = cont ok_tt ok_t GAF.addC
 
   let mulC = cont ok_tt ok_t GAF.mulC
+
+end
+
+(**
+
+   The dual category.
+
+*)
+module DualCat (C : GoodCat) :
+sig
+
+  type ('a, 'b) k = Dual of ('b, 'a) C.k
+
+  type 'a ok = 'a C.ok
+
+  include GoodCat
+          with type ('a, 'b) k := ('a, 'b) k
+          with type 'a ok := 'a ok
+
+end = struct
+
+  type ('a, 'b) k = Dual of ('b, 'a) C.k
+
+  type 'a ok = 'a C.ok
+
+  let ok_pair =
+    C.ok_pair
+
+  let id oka =
+    Dual (C.id oka)
+
+  let compose oka okb okc (Dual g) (Dual f) =
+    Dual (C.compose okc okb oka f g)
+
+  let pair
+    : type a b c d.
+      a ok -> b ok -> c ok -> d ok ->
+      (a, c) k -> (b, d) k -> (a * b, c * d) k
+    = fun oka okb okc okd (Dual f) (Dual g) ->
+    Dual (C.pair okc okd oka okb f g)
+
+  let exl oka okb =
+    Dual (C.inl oka okb)
+
+  let exr oka okb =
+    Dual (C.inr oka okb)
+
+  let dup oka =
+    Dual (C.jam oka)
+
+  let inl oka okb =
+    Dual (C.exl oka okb)
+
+  let inr oka okb =
+    Dual (C.exr oka okb)
+
+  let jam oka =
+    Dual (C.dup oka)
+
+  let ti (oka : 'a ok) : (unit, 'a) k =
+    Dual (C.it oka)
+
+  let it (oka : 'a ok) : ('a, unit) k =
+    Dual (C.ti oka)
+
+  let unit_arrow (oka : 'a ok) (a : 'a) : (unit, 'a) k =
+    Dual (C.it oka)
+
+  let ok_unit =
+    C.ok_unit
+
+end
+
+
+module DualScalableCat
+         (C : sig
+            include GoodCat
+            include Scalable with type ('a, 'b) k := ('a, 'b) k
+            val ok_t : t ok
+          end)
+: sig
+
+  type ('a, 'b) k = Dual of ('b, 'a) C.k
+
+  type 'a ok = 'a C.ok
+
+  include GoodCat
+          with type ('a, 'b) k := ('a, 'b) k
+          with type 'a ok := 'a C.ok
+
+  type t = C.t
+
+  val scale : t -> (t, t) k
+
+end = struct
+
+  include DualCat (C)
+
+  type t = C.t
+
+  let scale s =
+    Dual (C.scale s)
 
 end
