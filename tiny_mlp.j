@@ -11,12 +11,20 @@
 				       1 + e^{-x}
 
 *)
+
+let (sigmoid : float -> float) =
+  fun (x : float) -> inv (1 + exp (neg x))
+
 let nn (p :
        (* inputs  *) (float * float) *
        (* weights *) (float * float))
        (* output  *) : float
 =
-   0.
+  let   (x : float) = fst (fst p) in
+  let   (y : float) = snd (fst p) in
+  let (wxu : float) = fst (snd p) in
+  let (wyu : float) = snd (snd p) in
+  sigmoid ((x * wxu) + (y * wyu))
 
 (*
 
