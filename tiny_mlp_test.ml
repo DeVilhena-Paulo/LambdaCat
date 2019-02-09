@@ -64,5 +64,10 @@ let test =
   let training_set = [ (0., 1.), 0.; (1., 0.), 1. ] in
   let trained_net = train training_set in
   let error = eval_net trained_net training_set in
-  Printf.printf "eval_error trained_net training_set = %f \n" error;
+
+  print_newline ();
+  Printf.printf "    # eval_error trained_net training_set;;\n";
+  Printf.printf "    -: float = %f (* < 0.01 *)\n" error;
+  print_newline ();
+
   assert (eval_net trained_net training_set < acceptable_error)
