@@ -24,10 +24,11 @@ let add_locations =
 let remove_locations =
   traverse Position.value (fun _ a -> a)
 
-let i = ref 0
-
-let fresh_var () =
-  incr i; Id (Printf.sprintf "'a[%d]" !i)
+let make_fresh_var_gen () =
+  let i = ref 0 in
+  let fresh_var () =
+    incr i; Id (Printf.sprintf "'a[%d]" !i) in
+  fresh_var
 
 (** [substitute x u t] substitutes all the free occurences of [x] in [t] by [u],
     that is, "t[x ↦ u]". We avoid capture by assuming that the free variables
@@ -61,18 +62,26 @@ let ok_of_term : tterm typed -> Target.ok =
 (** [source_to_categories] translates a [source] in a [target] language
     made of categorical combinators. *)
 let source_to_categories : Source.program -> Target.program = fun source ->
-  let (env : (identifier, Target.t * Target.ok * Target.ok) Hashtbl.t) = Hashtbl.create 13 in
+  let open Target in
 
-  let const (_X : Target.ok) (_Y : Target.ok) (t : Target.t) : Target.t =
-    App (App (Compose (_X, OkUnit, _Y), App (UnitArrow _Y, t)), It _X)
+  let (env : (identifier, Target.t * ok * ok) Hashtbl.t) = Hashtbl.create 13 in
+
+  let fresh_var = make_fresh_var_gen () in
+
+  let compose (_A : ok) (_B : ok) (_C : ok) : Target.t -> Target.t -> Target.t =
+    fun g -> fun f -> App (App (Compose (_A, _B, _C), g), f)
   in
 
-  let const_fun (_X : Target.ok) (_A : Target.ok) (_B : Target.ok) (f : Target.t) : Target.t =
-    App (Curry (_X, _A, _B), App (App (Compose (OkPair (_X, _A), _A, _B), f), Exr (_X, _A)))
+  let const (_X : ok) (_Y : ok) (t : Target.t) : Target.t =
+    compose _X OkUnit _Y (App (UnitArrow _Y, t)) (It _X)
   in
 
-  let primitive_to_arrow : primitive -> Target.t * Target.ok * Target.ok =
-    let ok = Target.OkFloat in function
+  let const_fun (_X : ok) (_A : ok) (_B : ok) (f : Target.t) : Target.t =
+    App (Curry (_X, _A, _B), compose (OkPair (_X, _A)) _A _B f (Exr (_X, _A)))
+  in
+
+  let primitive_to_arrow : primitive -> Target.t * ok * ok =
+    let ok = OkFloat in function
     | (Sin | Cos | Exp | Inv | Neg) as p ->
        (Primitive p, ok, ok)
     | (Add | Mul) as p ->
@@ -80,17 +89,16 @@ let source_to_categories : Source.program -> Target.program = fun source ->
   in
 
   let rec lam_to_arrow ((x, ty) : binding) : tterm typed -> Target.t = fun t ->
-    let open Target in
     let _X, _B = ok_of_typ ty, ok_of_term t in
     match value t with
     | App (u, v) ->
        let _C, _A = ok_of_term u, ok_of_term v in
+       let _CxA = OkPair (_C, _A) in
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> A => B *)
        let arrow_v = lam_to_arrow (x, ty) v in (* X --\x.v--> A *)
-       let fork = Fork (_X, _C, _A) in
        let apply = Apply (_A, _B) in
-       let compose = Compose (_X, OkPair (_C, _A), _B) in
-       App (App (compose, apply), App (App (fork, arrow_u), arrow_v))
+       let fork = Fork (_A, _C, _A) in
+       compose _X _CxA _B apply (App (App (fork, arrow_u), arrow_v))
     | Lam ((y, ty'), u) when x = y ->
        let _C, _Y = ok_of_term u, ok_of_typ ty' in
        const_fun _X _Y _C (lam_to_arrow (y, ty') u)
@@ -110,22 +118,16 @@ let source_to_categories : Source.program -> Target.program = fun source ->
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> A *)
        let arrow_v = lam_to_arrow (x, ty) v in (* X --\x.v--> C *)
        App (App (Fork (_X, _A, _C), arrow_u), arrow_v)
-    | Fst u ->
-       let _BxC = ok_of_term u in
-       let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> B x C *)
-       begin match _BxC with
-       | OkPair (_, _C) ->
-          App (App (Compose (_X, OkPair (_B, _C), _B), Exl (_B, _C)), arrow_u)
-       | _ -> assert false
-       end
-    | Snd u ->
+    | Fst u | Snd u ->
        let _AxB = ok_of_term u in
        let arrow_u = lam_to_arrow (x, ty) u in (* X --\x.u--> A x B *)
-       begin match _AxB with
-       | OkPair (_A, _) ->
-          App (App (Compose (_X, OkPair (_A, _B), _B), Exr (_A, _B)), arrow_u)
-       | _ -> assert false
-       end
+       let arrow_proj, _C =
+         begin match _AxB with
+         | OkPair (_A, _B) when value t = Fst u -> Exl (_A, _B), _A
+         | OkPair (_A, _B) when value t = Snd u -> Exr (_A, _B), _B
+         | _ -> assert false
+         end in
+       compose _X _AxB _C arrow_proj arrow_u
     | Var y when x = y -> Identity _X
     | Var y ->
        let arrow, _A, _B = Hashtbl.find env y in
