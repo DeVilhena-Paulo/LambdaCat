@@ -17,9 +17,7 @@ let type_error pos msg =
     msg;
   exit 1
 
-(** [type_error_handler f] returns [f ()] if it doesn't fail and calls [type_error] otherwise. *)
-let type_error_handler f =
-  try f () with
+let error_handler = function
   | UnboundValue { value; position } ->
      let msg = Printf.sprintf "Unbound value \"%s\"" in
      type_error position (msg (string_of_term' value))
@@ -33,6 +31,7 @@ let type_error_handler f =
   | OnlyPairsCanBeDestructed { value; position } ->
      let msg = Printf.sprintf "The expression \"%s\" must have a product type" in
      type_error position (msg (string_of_term' value))
+  | _ -> assert false
 
 
 (* ************************************************************************** *)
@@ -59,66 +58,193 @@ let term_with_type value type' = { value; type' }
 (* Translation from source to typed programs                                  *)
 (* ************************************************************************** *)
 
-let type_program (source : program_with_locations) : program_with_types =
-  let (ty_env : (identifier, typ) Hashtbl.t) = Hashtbl.create 13 in
+type 'a or_error = Val of 'a | Exn of exn
 
-  let type_primitive : primitive -> typ =
-    let ty = TyConstant TyFloat in function
-    | Sin | Cos | Exp | Inv | Neg -> TyArrow (ty, ty)
-    | Add | Mul -> TyArrow (ty, (TyArrow (ty, ty)))
-  in
+module type Monad = sig
 
-  let rec type_term ({ value; position } as t : term' Position.located) : tterm typed =
-    match value with
-    | Var x as value ->
-       begin
-         try term_with_type value (Hashtbl.find ty_env x)
-         with _ -> raise (UnboundValue t)
-       end
-    | App (t, u) ->
-       let t', u' = type_term t, type_term u in
-       begin match type' t' with
-       | TyArrow (ty, ty') when ty = type' u' ->
-          term_with_type (App (t', u')) ty'
-       | TyArrow (_, ty') ->
-          raise (InconsistentTypes (type' t', TyArrow (type' u', ty'), t))
-       | _ -> raise (OnlyFunctionsCanBeApplied t)
-       end
-    | Lam ((x, ty), t) ->
-       Hashtbl.add ty_env x ty;
-       let t' = type_term t in
-       Hashtbl.remove ty_env x;
-       term_with_type (Lam ((x, ty), t')) (TyArrow (ty, type' t'))
-    | Fst t | Snd t ->
-       let t' = type_term t in
-       let value, type'=
-         match type' t' with
-         | TyPair (ty, _) when value = Fst t -> (Fst t'), ty
-         | TyPair (_, ty) when value = Snd t -> (Snd t'), ty
-         | _ -> raise (OnlyPairsCanBeDestructed t) in
-       term_with_type value type'
-    | Pair (t, u) ->
-       let t', u' = type_term t, type_term u in
-       term_with_type (Pair (t', u')) (TyPair (type' t', type' u'))
-    | Literal l as value ->
-       term_with_type value (TyConstant TyFloat)
-    | Primitive p as value ->
-       term_with_type value (type_primitive p)
-  in
+  type 'a t
 
-  let check_definition ({ Position.value = (x, ty') }, term) =
-    type_error_handler
-      (fun () ->
-       let term' = type_term term in
-        begin
-          if (type' term' = ty') then Hashtbl.add ty_env x ty'
-          else raise (InconsistentTypes (type' term', ty', term))
-        end;
-        ((x, ty'), term'))
-  in
+  val return : 'a -> 'a t
 
-  List.map check_definition source
+  val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
 
+end
+
+module type Context = sig
+
+  type t
+
+  type content
+
+  val make   : unit -> t
+
+  val lookup : t -> identifier -> content option
+
+  val add    : t -> identifier -> content -> t
+
+  val remove : t -> identifier -> t
+
+end
+
+module ContextMonad (C : Context) : sig
+
+  type content = C.content
+
+  include Monad with type 'a t = C.t -> (C.t * 'a or_error)
+
+  val bind_map : 'a list -> ('a -> 'b t) -> ('b list) t
+
+  val raise' : exn -> 'a t
+
+  val lookup : identifier -> (content option) t
+
+  val add    : identifier -> content -> unit t
+
+  val remove : identifier -> unit t
+
+  val run    : 'a t -> catch:(exn -> 'a) -> 'a
+
+end = struct
+
+  type content = C.content
+
+  type 'a t = C.t -> (C.t * 'a or_error)
+
+  let return v = fun context -> (context, Val v)
+
+  let raise' e = fun context -> (context, Exn e)
+
+  let (>>=) m k context =
+    let context', a = m context in
+    match a with
+    | Val a' -> k a' context'
+    | Exn e  -> (context, Exn e)
+
+  let rec bind_map xs f =
+    match xs with
+    | [] -> return []
+    | x :: xs ->
+       f x           >>= fun x'  ->
+       bind_map xs f >>= fun xs' ->
+       return (x' :: xs')
+
+  let lookup id = fun context ->
+    (context, Val (C.lookup context id))
+
+  let add id ty = fun context ->
+    (C.add context id ty, Val ())
+
+  let remove id = fun context ->
+    (C.remove context id, Val ())
+
+  let run m ~catch =
+    match snd (m (C.make ())) with
+    | Val a -> a
+    | Exn e -> catch e
+
+end
+
+module HashContext (Content : sig type t end) : sig
+
+  include Context with type content = Content.t
+
+end = struct
+
+  type content = Content.t
+
+  type t = (identifier, content) Hashtbl.t
+
+  let make () = Hashtbl.create 13
+
+  let lookup context id =
+    Hashtbl.find_opt context id
+
+  let add context id ty =
+    Hashtbl.add context id ty; context
+
+  let remove context id =
+    Hashtbl.remove context id; context
+
+end
+
+
+module TypeChecker (C : Context with type content = typ) = struct
+
+  open Position
+
+  include ContextMonad (C)
+
+  let rec type_term : term' located -> (tterm typed) t = fun t ->
+    match value t with
+    | Var id            -> type_var id (position t)
+    | App (t, u)        -> type_app t u
+    | Lam ((id, ty), t) -> type_lam id ty t
+    | Fst t             -> type_fst_or_snd true  t
+    | Snd t             -> type_fst_or_snd false t
+    | Pair (t, u)       -> type_pair t u
+    | Literal l         -> type_literal l
+    | Primitive p       -> type_primitive p
+
+  and type_var (id : identifier) (pos : position) =
+    lookup id >>= function
+    | Some typ ->
+       return (term_with_type (Var id) typ)
+    | None     ->
+       raise' (UnboundValue { value = Var id; position = pos})
+
+  and type_app (t : term' located) (u : term' located) =
+    type_term t >>= fun t' ->
+    type_term u >>= fun u' ->
+    match type' t' with
+    | TyArrow (ty, ty') when ty = type' u' ->
+       return (term_with_type (App (t', u')) ty')
+    | TyArrow (_, ty') ->
+       raise' (InconsistentTypes (type' t', TyArrow (type' u', ty'), t))
+    | _ ->
+       raise' (OnlyFunctionsCanBeApplied t)
+
+  and type_lam (id : identifier) (ty : typ) (t : term' located) =
+    add id ty   >>= fun _  ->
+    type_term t >>= fun t' ->
+    remove id   >>= fun _  ->
+    return (term_with_type (Lam ((id, ty), t')) (TyArrow (ty, type' t')))
+
+  and type_fst_or_snd (b : bool) (t : term' located) =
+    type_term t >>= fun ({ type' } as t') ->
+    match type' with
+    | TyPair (ty, _) when b ->
+       return (term_with_type (Fst t') ty)
+    | TyPair (_, ty) ->
+       return (term_with_type (Snd t') ty)
+    | _ ->
+       raise' (OnlyPairsCanBeDestructed t)
+
+  and type_pair (t : term' located) (u : term' located) =
+    type_term t >>= fun t' ->
+    type_term u >>= fun u' ->
+    return (term_with_type (Pair (t', u')) (TyPair (type' t', type' u')))
+
+  and type_literal (l : literal) =
+    return (term_with_type (Literal l) (TyConstant TyFloat))
+
+  and type_primitive (p : primitive) =
+    let ty = TyConstant TyFloat in
+    return (term_with_type (Primitive p)
+      (match p with
+      | Sin | Cos | Exp | Inv | Neg -> TyArrow (ty, ty)
+      | Add | Mul -> TyArrow (ty, (TyArrow (ty, ty)))))
+
+
+  let type_program : program_with_locations -> program_with_types = fun source ->
+    let check_definition ({ Position.value = (id, ty) }, term)  : (_ * tterm typed) t =
+      type_term term >>= fun ({ type' } as t') ->
+      if type' = ty
+      then add id ty >>= fun _ -> return ((id, ty), t')
+      else raise' (InconsistentTypes (type', ty, term))
+    in
+    run (bind_map source check_definition) ~catch:error_handler
+
+end
 
 (* ************************************************************************** *)
 (* Checking source program                                                    *)
@@ -127,11 +253,13 @@ let type_program (source : program_with_locations) : program_with_types =
 (** [check_program source] returns [source] if it is well-typed or
    reports an error if it is not. *)
 let check_program (source : program_with_locations) : program_with_locations =
-  ignore (type_program source); source
+  let module TypeChecker =
+    TypeChecker (HashContext (struct type t = typ end)) in
+  ignore (TypeChecker.type_program source); source
 
-(** [eta_expanse source] makes sure that only functions are defined at
+(** [eta_expantion source] makes sure that only functions are defined at
     toplevel and turns them into eta-long forms if needed. *)
-let eta_expanse (source : program_with_locations) : program_with_locations =
+let eta_expantion (source : program_with_locations) : program_with_locations =
   let check_definition ((binding, (term : term' Position.located)) as input) =
     match Position.(value term, snd (value binding)) with
     | Lam _, _ -> input
@@ -148,4 +276,4 @@ let eta_expanse (source : program_with_locations) : program_with_locations =
 let program : program_with_locations -> program_with_locations = fun source ->
   let xsource = check_program source in
   if !Options.typecheck_only then exit 0;
-  eta_expanse xsource
+  eta_expantion xsource
